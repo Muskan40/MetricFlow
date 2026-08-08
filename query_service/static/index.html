@@ -1,1 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MetricFlow — Query</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1c1f24;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --error: #dc2626;
+    --warn: #d97706;
+    --info: #2563eb;
+    --debug: #6b7280;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f24;
+      --border: #2e333b;
+      --text: #e6e8eb;
+      --muted: #9aa1ab;
+      --accent: #60a5fa;
+      --error: #f87171;
+      --warn: #fbbf24;
+      --info: #60a5fa;
+      --debug: #9aa1ab;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 16px 24px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .stats { display: flex; gap: 16px; margin-left: auto; flex-wrap: wrap; }
+  .stat { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .stat b { color: var(--text); font-weight: 600; }
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab {
+    padding: 7px 16px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--muted); border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filters {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; margin-bottom: 16px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  label { font-size: 12px; color: var(--muted); }
+  input, select {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font: inherit; min-width: 150px;
+  }
+  button {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: inherit; font-weight: 500; cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--muted); border-color: var(--border); }
+  .live { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: #16a34a; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .table-wrap {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.msg { white-space: normal; min-width: 320px; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .lvl { font-weight: 600; font-size: 12px; }
+  .lvl.ERROR, .lvl.CRITICAL { color: var(--error); }
+  .lvl.WARN, .lvl.WARNING { color: var(--warn); }
+  .lvl.INFO { color: var(--info); }
+  .lvl.DEBUG { color: var(--debug); }
+  .bar { display: flex; align-items: center; gap: 8px; }
+  .bar-track { width: 60px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); }
+  .bar-fill.high { background: var(--error); }
+  .footer {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 12px; color: var(--muted); font-size: 13px;
+  }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>MetricFlow</h1>
+  <div class="stats">
+    <span class="stat">logs <b id="s-logs">–</b></span>
+    <span class="stat">metrics <b id="s-metrics">–</b></span>
+    <span class="stat" id="s-levels"></span>
+  </div>
+</header>
 
+<main>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="logs">Logs</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="metrics">Metrics</button>
+  </div>
+
+  <div class="filters">
+    <div class="field">
+      <label for="f-service">Service</label>
+      <select id="f-service"><option value="">All</option></select>
+    </div>
+    <div class="field" data-only="logs">
+      <label for="f-level">Level</label>
+      <select id="f-level">
+        <option value="">All</option>
+        <option>DEBUG</option><option>INFO</option>
+        <option>WARN</option><option>ERROR</option><option>CRITICAL</option>
+      </select>
+    </div>
+    <div class="field" data-only="logs">
+      <label for="f-search">Message contains</label>
+      <input id="f-search" type="search" placeholder="timeout">
+    </div>
+    <div class="field">
+      <label for="f-start">From</label>
+      <input id="f-start" type="datetime-local">
+    </div>
+    <div class="field">
+      <label for="f-end">To</label>
+      <input id="f-end" type="datetime-local">
+    </div>
+    <div class="field">
+      <label for="f-limit">Limit</label>
+      <select id="f-limit">
+        <option>50</option><option selected>100</option>
+        <option>250</option><option>1000</option>
+      </select>
+    </div>
+    <button id="apply">Search</button>
+    <button id="reset" class="secondary">Reset</button>
+    <label class="live">
+      <input type="checkbox" id="f-live" checked style="min-width:auto">
+      <span class="dot on" id="live-dot"></span> Live
+    </label>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No matching records.</div>
+  </div>
+
+  <div class="footer">
+    <span id="count">–</span>
+    <button id="prev" class="secondary">‹ Prev</button>
+    <button id="next" class="secondary">Next ›</button>
+    <span id="updated" style="margin-left:auto"></span>
+  </div>
+</main>
+
+<script>
+const POLL_MS = 5000;
+let view = "logs";
+let skip = 0;
+let timer = null;
+
+const $ = (id) => document.getElementById(id);
+
+function toEpoch(value) {
+  return value ? new Date(value).getTime() / 1000 : null;
+}
+
+function fmtTime(ts) {
+  if (ts === undefined || ts === null) return "—";
+  const d = new Date(ts * 1000);
+  return isNaN(d) ? String(ts) : d.toISOString().replace("T", " ").slice(0, 23);
+}
+
+function params() {
+  const p = new URLSearchParams();
+  const service = $("f-service").value;
+  const start = toEpoch($("f-start").value);
+  const end = toEpoch($("f-end").value);
+
+  if (service) p.set("service", service);
+  if (start) p.set("start", start);
+  if (end) p.set("end", end);
+  if (view === "logs") {
+    if ($("f-level").value) p.set("level", $("f-level").value);
+    if ($("f-search").value.trim()) p.set("search", $("f-search").value.trim());
+  }
+  p.set("limit", $("f-limit").value);
+  p.set("skip", skip);
+  return p;
+}
+
+function cell(text, cls) {
+  const td = document.createElement("td");
+  if (cls) td.className = cls;
+  td.textContent = text;
+  return td;
+}
+
+function utilCell(value) {
+  const td = document.createElement("td");
+  const pct = Math.max(0, Math.min(100, Number(value) || 0));
+  td.className = "num";
+  const wrap = document.createElement("div");
+  wrap.className = "bar";
+  const track = document.createElement("div");
+  track.className = "bar-track";
+  const fill = document.createElement("div");
+  fill.className = "bar-fill" + (pct >= 85 ? " high" : "");
+  fill.style.width = pct + "%";
+  track.appendChild(fill);
+  const label = document.createElement("span");
+  label.textContent = pct.toFixed(1) + "%";
+  wrap.append(track, label);
+  td.appendChild(wrap);
+  return td;
+}
+
+function renderLogs(rows) {
+  $("thead").innerHTML =
+    "<tr><th>Timestamp</th><th>Level</th><th>Service</th><th>Message</th></tr>";
+  const body = $("tbody");
+  body.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(fmtTime(r.timestamp)));
+    const lvl = cell(r.level || "—", "lvl " + (r.level || ""));
+    tr.appendChild(lvl);
+    tr.appendChild(cell(r.service || "—"));
+    tr.appendChild(cell(r.message || "—", "msg"));
+    body.appendChild(tr);
+  }
+}
+
+function renderMetrics(rows) {
+  $("thead").innerHTML =
+    "<tr><th>Timestamp</th><th>Service</th><th>CPU</th><th>RAM</th><th>Disk</th></tr>";
+  const body = $("tbody");
+  body.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(fmtTime(r.timestamp)));
+    tr.appendChild(cell(r.service || "—"));
+    tr.appendChild(utilCell(r.cpu_utilization));
+    tr.appendChild(utilCell(r.ram_utilization));
+    tr.appendChild(utilCell(r.disk_utilization));
+    body.appendChild(tr);
+  }
+}
+
+async function load() {
+  try {
+    const res = await fetch(`/api/${view}?` + params());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+
+    (view === "logs" ? renderLogs : renderMetrics)(data.results);
+    $("empty").hidden = data.results.length > 0;
+
+    const from = data.total === 0 ? 0 : skip + 1;
+    $("count").textContent =
+      `${from}–${skip + data.results.length} of ${data.total}`;
+    $("prev").disabled = skip === 0;
+    $("next").disabled = skip + data.results.length >= data.total;
+    $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (err) {
+    $("updated").textContent = "error: " + err.message;
+  }
+}
+
+async function loadStats() {
+  try {
+    const s = await (await fetch("/api/stats")).json();
+    $("s-logs").textContent = s.logs.toLocaleString();
+    $("s-metrics").textContent = s.metrics.toLocaleString();
+    $("s-levels").textContent = Object.entries(s.levels)
+      .map(([k, v]) => `${k} ${v}`).join("  ");
+  } catch { /* header stats are best-effort */ }
+}
+
+async function loadServices() {
+  try {
+    const { services } = await (await fetch("/api/services")).json();
+    const sel = $("f-service");
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All</option>';
+    for (const s of services) {
+      const o = document.createElement("option");
+      o.value = o.textContent = s;
+      sel.appendChild(o);
+    }
+    sel.value = current;
+  } catch { /* dropdown stays as-is */ }
+}
+
+function refresh() {
+  load();
+  loadStats();
+}
+
+function setLive(on) {
+  clearInterval(timer);
+  timer = on ? setInterval(refresh, POLL_MS) : null;
+  $("live-dot").classList.toggle("on", on);
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) =>
+      t.setAttribute("aria-selected", String(t === tab)));
+    view = tab.dataset.view;
+    skip = 0;
+    document.querySelectorAll("[data-only]").forEach((el) => {
+      el.hidden = el.dataset.only !== view;
+    });
+    refresh();
+  });
+});
+
+$("apply").addEventListener("click", () => { skip = 0; refresh(); });
+$("f-search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { skip = 0; refresh(); }
+});
+$("reset").addEventListener("click", () => {
+  ["f-service", "f-level", "f-search", "f-start", "f-end"].forEach((id) => {
+    $(id).value = "";
+  });
+  skip = 0;
+  refresh();
+});
+$("prev").addEventListener("click", () => {
+  skip = Math.max(0, skip - Number($("f-limit").value));
+  refresh();
+});
+$("next").addEventListener("click", () => {
+  skip += Number($("f-limit").value);
+  refresh();
+});
+$("f-live").addEventListener("change", (e) => setLive(e.target.checked));
+
+loadServices();
+setInterval(loadServices, 30000);
+refresh();
+setLive(true);
+</script>
+</body>
+</html>
